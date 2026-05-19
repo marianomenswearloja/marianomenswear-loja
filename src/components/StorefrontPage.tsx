@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useState, useMemo, useRef } from "react";
 import { useStore } from "@/lib/store-context";
+import { useFilter } from "@/lib/filter-context";
 import { Button } from "@/components/ui/button";
 import {
   Search,
@@ -20,9 +21,8 @@ import { StoreFilters } from "@/components/StoreFilters";
 
 export function StorefrontPage() {
   const store = useStore();
+  const { activeDept, setActiveDept, activeCat, setActiveCat } = useFilter();
   const [q, setQ] = useState("");
-  const [activeDept, setActiveDept] = useState<string | null>(null);
-  const [activeCat, setActiveCat] = useState<string | null>(null);
   const [viewAllCategory, setViewAllCategory] = useState<{ id: string; name: string } | null>(null);
 
   const scrollContainerRef = useRef<{ [key: string]: HTMLDivElement | null }>({});
@@ -128,7 +128,7 @@ export function StorefrontPage() {
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8 sm:py-12 w-full">
           {/* Search Bar */}
-          <div className="max-w-2xl mx-auto mb-10 sm:mb-16 w-full">
+          <div className="hidden sm:block max-w-2xl mx-auto mb-10 sm:mb-16 w-full">
             <div className="flex items-center gap-2 h-14 sm:h-16 bg-white rounded-full shadow-sm border border-slate-100 px-5 focus-within:shadow-xl focus-within:border-slate-300 transition-all">
               <Search className="h-5 w-5 text-slate-400 shrink-0" />
               <input
@@ -299,7 +299,7 @@ export function StorefrontPage() {
             </DialogHeader>
 
             <div className="flex-1 overflow-y-auto p-6 sm:p-12 bg-slate-50/50">
-              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-10">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-6 lg:gap-10">
                 {viewAllCategory &&
                   productsByCategory
                     .get(viewAllCategory.id)

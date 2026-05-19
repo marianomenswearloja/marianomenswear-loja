@@ -51,8 +51,10 @@ export function useCart(slug: string) {
   const persist = useCallback(
     (next: CartItem[]) => {
       localStorage.setItem(key(slug), JSON.stringify(next));
-      // Dispara evento customizado para atualizar outros componentes na mesma aba
-      window.dispatchEvent(new CustomEvent("cart-updated", { detail: { slug } }));
+      // Defer dispatch so it runs outside any React setState updater (avoids warning)
+      queueMicrotask(() => {
+        window.dispatchEvent(new CustomEvent("cart-updated", { detail: { slug } }));
+      });
     },
     [slug],
   );

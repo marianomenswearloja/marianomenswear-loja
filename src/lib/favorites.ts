@@ -39,7 +39,10 @@ export function useFavorites(slug: string) {
   const persist = useCallback(
     (next: string[]) => {
       localStorage.setItem(key(slug), JSON.stringify(next));
-      window.dispatchEvent(new CustomEvent("favorites-updated", { detail: { slug } }));
+      // Defer dispatch so it runs outside any React setState updater (avoids warning)
+      queueMicrotask(() => {
+        window.dispatchEvent(new CustomEvent("favorites-updated", { detail: { slug } }));
+      });
     },
     [slug],
   );
@@ -48,8 +51,8 @@ export function useFavorites(slug: string) {
     (productId: string) => {
       setFavoriteIds((current) => {
         const isFavorite = current.includes(productId);
-        const next = isFavorite 
-          ? current.filter((id) => id !== productId) 
+        const next = isFavorite
+          ? current.filter((id) => id !== productId)
           : [...current, productId];
         persist(next);
         return next;

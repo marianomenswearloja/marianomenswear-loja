@@ -2,7 +2,9 @@ import { createFileRoute, Outlet, notFound } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { StoreHeader } from "@/components/store-header";
+import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { StoreCtx, useStore } from "@/lib/store-context";
+import { FilterProvider } from "@/lib/filter-context";
 
 export { useStore };
 
@@ -43,13 +45,16 @@ function StoreLayout() {
 
   return (
     <StoreCtx.Provider value={store as any}>
-      <div className="min-h-screen bg-background overflow-x-hidden w-full">
-        <StoreHeader store={store} />
-        <Outlet />
-        <footer className="mt-16 border-t border-border py-8 text-center text-xs text-muted-foreground">
-          Powered by Amanda Miranda
-        </footer>
-      </div>
+      <FilterProvider>
+        <div className="min-h-screen bg-background overflow-x-hidden w-full">
+          <StoreHeader store={store} />
+          <Outlet />
+          <WhatsAppButton />
+          <footer className="mt-16 border-t border-border py-8 text-center text-xs text-muted-foreground">
+            Powered by Amanda Miranda
+          </footer>
+        </div>
+      </FilterProvider>
     </StoreCtx.Provider>
   );
 }

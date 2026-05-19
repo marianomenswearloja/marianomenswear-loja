@@ -74,7 +74,7 @@ export function StoreFilters({
 
   return (
     <div
-      className={`sticky top-[72px] z-40 w-full transition-all duration-300 border-b border-slate-100 overflow-x-hidden ${
+      className={`hidden sm:block sticky top-[72px] z-40 w-full transition-all duration-300 border-b border-slate-100 overflow-x-hidden ${
         isScrolled ? "sticky-filters-active py-2" : "bg-white py-4"
       }`}
     >
