@@ -1,7 +1,9 @@
 import { createContext, useContext, useState } from "react";
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 
-type FilterContextValue = {
+type FilterMenuContextValue = {
+  isOpen: boolean;
+  setIsOpen: Dispatch<SetStateAction<boolean>>;
   activeDept: string | null;
   setActiveDept: (id: string | null) => void;
   activeCat: string | null;
@@ -10,27 +12,32 @@ type FilterContextValue = {
 
 const noop = () => {};
 
-const fallback: FilterContextValue = {
+const fallback: FilterMenuContextValue = {
+  isOpen: false,
+  setIsOpen: noop,
   activeDept: null,
   setActiveDept: noop,
   activeCat: null,
   setActiveCat: noop,
 };
 
-const FilterCtx = createContext<FilterContextValue | null>(null);
+const FilterMenuCtx = createContext<FilterMenuContextValue | null>(null);
 
 export function FilterProvider({ children }: { children: ReactNode }) {
+  const [isOpen, setIsOpen] = useState(false);
   const [activeDept, setActiveDept] = useState<string | null>(null);
   const [activeCat, setActiveCat] = useState<string | null>(null);
 
   return (
-    <FilterCtx.Provider value={{ activeDept, setActiveDept, activeCat, setActiveCat }}>
+    <FilterMenuCtx.Provider
+      value={{ isOpen, setIsOpen, activeDept, setActiveDept, activeCat, setActiveCat }}
+    >
       {children}
-    </FilterCtx.Provider>
+    </FilterMenuCtx.Provider>
   );
 }
 
-/** Safe to call outside <FilterProvider> — returns a no-op fallback in that case. */
-export function useFilter() {
-  return useContext(FilterCtx) ?? fallback;
+/** Safe to call outside <FilterProvider> — returns a no-op fallback. */
+export function useFilterMenu() {
+  return useContext(FilterMenuCtx) ?? fallback;
 }

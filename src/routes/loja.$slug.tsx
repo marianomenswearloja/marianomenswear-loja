@@ -5,6 +5,7 @@ import { StoreHeader } from "@/components/store-header";
 import { WhatsAppButton } from "@/components/WhatsAppButton";
 import { StoreCtx, useStore } from "@/lib/store-context";
 import { FilterProvider } from "@/lib/filter-context";
+import { SearchProvider } from "@/lib/search-context";
 
 export { useStore };
 
@@ -46,14 +47,16 @@ function StoreLayout() {
   return (
     <StoreCtx.Provider value={store as any}>
       <FilterProvider>
-        <div className="min-h-screen bg-background overflow-x-hidden w-full">
-          <StoreHeader store={store} />
-          <Outlet />
-          <WhatsAppButton />
-          <footer className="mt-16 border-t border-border py-8 text-center text-xs text-muted-foreground">
-            Powered by Amanda Miranda
-          </footer>
-        </div>
+        <SearchProvider>
+          <div className="min-h-screen bg-background overflow-x-hidden w-full">
+            <StoreHeader store={store} />
+            <Outlet />
+            <WhatsAppButton />
+            <footer className="mt-16 border-t border-border py-8 text-center text-xs text-muted-foreground">
+              Powered by Amanda Miranda
+            </footer>
+          </div>
+        </SearchProvider>
       </FilterProvider>
     </StoreCtx.Provider>
   );

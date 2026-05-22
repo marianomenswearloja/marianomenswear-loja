@@ -1,24 +1,27 @@
-import { Link, useNavigate, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCart } from "@/lib/cart";
 import { useFavorites } from "@/lib/favorites";
-import { useFilter } from "@/lib/filter-context";
-import { useRef, useState, useMemo, useEffect } from "react";
 import {
   ShoppingBag,
-  Info,
   MessageCircle,
   MapPin,
   Instagram,
   Heart,
   Menu,
-  X,
   Search,
-  ArrowLeft,
-  ChevronRight,
   LayoutGrid,
+  ChevronRight,
+  ArrowLeft,
+  Sparkles,
+  User as UserIcon,
+  X,
+  Info,
 } from "lucide-react";
+import { useFilterMenu } from "@/lib/filter-context";
+import { useSearchMenu } from "@/lib/search-context";
 import {
   Dialog,
   DialogContent,
@@ -28,69 +31,29 @@ import {
 } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+
+interface Category {
+  id: string;
+  name: string;
+  parent_id: string | null;
+}
+
+type DrawerLevel = "departments" | "subcats";
 
 export function StoreHeader({ store }: { store: any }) {
   const { count: cartCount } = useCart(store.slug);
   const { count: favCount } = useFavorites(store.slug);
+  const {
+    isOpen: isCategoryMenuOpen,
+    setIsOpen: setCategoryMenuOpen,
+    activeDept,
+    setActiveDept,
+    activeCat,
+    setActiveCat,
+  } = useFilterMenu();
+  const { setIsOpen: openSearchMenu } = useSearchMenu();
   const navigate = useNavigate();
   const location = useLocation();
-  const { activeDept, activeCat, setActiveDept, setActiveCat } = useFilter();
-
-  // ─── Category Drawer ─────────────────────────────────────────────
-  const [isCategoryMenuOpen, setCategoryMenuOpen] = useState(false);
-  const [drawerLevel, setDrawerLevel] = useState<"departments" | "subcategories">("departments");
-  const [drawerDept, setDrawerDept] = useState<{ id: string; name: string } | null>(null);
-  const hamburgerRef = useRef<HTMLButtonElement>(null);
-
-  // Reset drawer level when it closes
-  useEffect(() => {
-    if (!isCategoryMenuOpen) {
-      setDrawerLevel("departments");
-      setDrawerDept(null);
-    }
-  }, [isCategoryMenuOpen]);
-
-  // ─── Search Overlay ───────────────────────────────────────────────
-  const [isSearchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  useEffect(() => {
-    if (isSearchOpen) {
-      requestAnimationFrame(() => searchInputRef.current?.focus());
-      const onKey = (e: KeyboardEvent) => {
-        if (e.key === "Escape") setSearchOpen(false);
-      };
-      document.addEventListener("keydown", onKey);
-      return () => document.removeEventListener("keydown", onKey);
-    } else {
-      setSearchQuery("");
-      setDebouncedQuery("");
-    }
-  }, [isSearchOpen]);
-
-  // ─── Data ─────────────────────────────────────────────────────────
-  const { data: products = [] } = useQuery({
-    queryKey: ["public-products", store.id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("products")
-        .select(
-          "id, name, price, compare_at_price, featured, category_id, product_images(url, position)",
-        )
-        .eq("store_id", store.id)
-        .eq("active", true)
-        .order("created_at", { ascending: false });
-      return data ?? [];
-    },
-  });
 
   const { data: cats = [] } = useQuery({
     queryKey: ["public-cats", store.id],
@@ -98,32 +61,65 @@ export function StoreHeader({ store }: { store: any }) {
       (
         await supabase
           .from("categories")
-          .select("id,name,parent_id")
+          .select("id,name,parent_id,position")
           .eq("store_id", store.id)
-          .order("position")
+          .order("position", { ascending: true })
+          .order("name", { ascending: true })
       ).data ?? [],
   });
 
-  const departments = (cats as any[]).filter((c) => !c.parent_id);
+  const categories = cats as Category[];
+  const departments = useMemo(() => categories.filter((c) => !c.parent_id), [categories]);
+
+  const [drawerLevel, setDrawerLevel] = useState<DrawerLevel>("departments");
+  const [drawerDept, setDrawerDept] = useState<Category | null>(null);
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+
   const drawerSubcats = useMemo(
-    () => (cats as any[]).filter((c) => c.parent_id === drawerDept?.id),
-    [cats, drawerDept],
+    () => (drawerDept ? categories.filter((c) => c.parent_id === drawerDept.id) : []),
+    [categories, drawerDept],
   );
 
-  // ─── Search results ───────────────────────────────────────────────
-  const isSearching = searchQuery !== debouncedQuery;
-  const searchResults = useMemo(() => {
-    if (!debouncedQuery.trim()) return [];
-    const q = debouncedQuery.toLowerCase();
-    return (products as any[]).filter((p) => p.name.toLowerCase().includes(q)).slice(0, 10);
-  }, [products, debouncedQuery]);
+  // Reset drawer navigation after the sheet close animation completes
+  useEffect(() => {
+    if (!isCategoryMenuOpen) {
+      const t = setTimeout(() => {
+        setDrawerLevel("departments");
+        setDrawerDept(null);
+      }, 300);
+      return () => clearTimeout(t);
+    }
+  }, [isCategoryMenuOpen]);
 
-  // ─── Helpers ──────────────────────────────────────────────────────
+  // Navigate to the storefront route (preserves multi-store via /loja/$slug)
+  function navigateToStorefront() {
+    const path = location.pathname.startsWith("/loja/") ? `/loja/${store.slug}` : "/";
+    if (location.pathname !== path) {
+      navigate({ to: path });
+    }
+  }
+
+  function selectDept(deptId: string | null) {
+    setActiveDept(deptId);
+    setActiveCat(null);
+    setCategoryMenuOpen(false);
+    navigateToStorefront();
+  }
+
+  function selectSubcat(deptId: string, catId: string | null) {
+    setActiveDept(deptId);
+    setActiveCat(catId);
+    setCategoryMenuOpen(false);
+    navigateToStorefront();
+  }
+
   function openWhatsApp() {
     if (!store.whatsapp) return;
     let clean = store.whatsapp.replace(/\D/g, "");
     if (clean.startsWith("0")) clean = clean.substring(1);
-    if (clean.length === 10 || clean.length === 11) clean = "55" + clean;
+    if (clean.length === 10 || clean.length === 11) {
+      clean = "55" + clean;
+    }
     window.open(`https://api.whatsapp.com/send?phone=${clean}`, "_blank");
   }
 
@@ -138,193 +134,310 @@ export function StoreHeader({ store }: { store: any }) {
     window.open(url, "_blank");
   }
 
-  function openMaps() {
-    const query = [store.address, store.city, store.state, store.zip_code]
-      .filter(Boolean)
-      .join(", ");
-    window.open(
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`,
-      "_blank",
-    );
-  }
+  const getCategoryIcon = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower.includes("masculino") || lower.includes("homem"))
+      return <UserIcon className="h-4 w-4 shrink-0" />;
+    if (lower.includes("feminino") || lower.includes("mulher"))
+      return <Sparkles className="h-4 w-4 shrink-0" />;
+    if (lower.includes("beleza") || lower.includes("cosmético"))
+      return <Sparkles className="h-4 w-4 shrink-0" />;
+    return <LayoutGrid className="h-4 w-4 shrink-0" />;
+  };
 
-  function onSearchButtonClick() {
-    const targetPath = `/loja/${store.slug}`;
-    if (location.pathname !== targetPath) {
-      navigate({ to: targetPath });
-    }
-    setSearchOpen(true);
-  }
-
-  function onResultClick(productId: string) {
-    setSearchOpen(false);
-    navigate({ to: `/loja/${store.slug}/produto/${productId}` });
-  }
-
-  function handleSearchClear() {
-    if (searchQuery) {
-      setSearchQuery("");
-    } else {
-      setSearchOpen(false);
-    }
-  }
-
-  function selectSubcat(deptId: string, catId: string) {
-    setActiveDept(deptId);
-    setActiveCat(catId);
-    setCategoryMenuOpen(false);
-    const targetPath = `/loja/${store.slug}`;
-    if (location.pathname !== targetPath) {
-      navigate({ to: targetPath });
-    }
-  }
-
-  function selectAll() {
-    setActiveDept(null);
-    setActiveCat(null);
-    setCategoryMenuOpen(false);
-    const targetPath = `/loja/${store.slug}`;
-    if (location.pathname !== targetPath) {
-      navigate({ to: targetPath });
-    }
-  }
-
-  function selectDept(deptId: string) {
-    setActiveDept(deptId);
-    setActiveCat(null);
-    setCategoryMenuOpen(false);
-    const targetPath = `/loja/${store.slug}`;
-    if (location.pathname !== targetPath) {
-      navigate({ to: targetPath });
-    }
-  }
+  const activeBtn = "bg-primary text-primary-foreground shadow-sm shadow-primary/20 translate-x-1";
+  const inactiveBtn = "text-muted-foreground hover:bg-muted hover:text-foreground";
+  const btnBase =
+    "flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium transition-all duration-200";
 
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-[100] w-full bg-white/80 backdrop-blur-md border-b border-slate-100 shadow-sm transition-all duration-300 overflow-x-hidden">
         <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 w-full">
-          {/* ── Mobile layout (< lg): hamburger + search | logo center | favorites + cart ── */}
-          <div className="flex lg:hidden h-16 items-center relative w-full">
-            {/* Left: hamburger + search */}
-            <div className="flex items-center gap-1 shrink-0">
+          <div className="relative flex h-16 sm:h-20 items-center w-full">
+            {/* ── Left: mobile nav buttons / desktop logo ── */}
+            <div className="flex items-center gap-0.5 z-10">
+              {/* Mobile only: category menu */}
+              <Sheet open={isCategoryMenuOpen} onOpenChange={setCategoryMenuOpen}>
+                <Button
+                  ref={hamburgerRef}
+                  variant="ghost"
+                  size="icon"
+                  // Stop pointerdown from reaching Radix's DismissableLayer listener on document;
+                  // otherwise it would dismiss the sheet right before our onClick toggles it back open.
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setCategoryMenuOpen((prev) => !prev)}
+                  className="md:hidden rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-10 w-10 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
+                  aria-label={
+                    isCategoryMenuOpen ? "Fechar menu de categorias" : "Abrir menu de categorias"
+                  }
+                  aria-expanded={isCategoryMenuOpen}
+                  aria-haspopup="dialog"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+                <SheetContent
+                  side="left"
+                  aria-describedby={undefined}
+                  className="w-[85vw] max-w-[320px] p-0 gap-0 border-r shadow-2xl z-[999] flex flex-col [&>button]:hidden"
+                >
+                  {/* Sticky header: title (or back + dept name) + close X */}
+                  <div className="sticky top-0 z-10 flex items-center justify-between h-16 px-4 border-b bg-background shrink-0">
+                    {drawerLevel === "departments" ? (
+                      <SheetTitle className="text-sm font-black tracking-tighter uppercase text-foreground px-2">
+                        Categorias
+                      </SheetTitle>
+                    ) : (
+                      <button
+                        onClick={() => setDrawerLevel("departments")}
+                        className="flex items-center gap-2 rounded-lg px-2 py-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                        aria-label="Voltar"
+                      >
+                        <ArrowLeft className="h-4 w-4 shrink-0" />
+                        <SheetTitle className="text-sm font-black tracking-tighter uppercase text-foreground truncate">
+                          {drawerDept?.name ?? ""}
+                        </SheetTitle>
+                      </button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setCategoryMenuOpen(false)}
+                      className="h-9 w-9 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+                      aria-label="Fechar menu"
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
+                  </div>
+
+                  {/* Sliding content panels */}
+                  <div className="relative flex-1 overflow-hidden">
+                    {/* Level 1: departments */}
+                    <div
+                      className={`absolute inset-0 flex flex-col overflow-hidden transition-transform duration-300 ease-in-out ${
+                        drawerLevel === "departments" ? "translate-x-0" : "-translate-x-full"
+                      }`}
+                    >
+                      {/* ── Scrollable categories area ── */}
+                      <div className="flex-1 overflow-y-auto px-4 py-6">
+                        <p className="px-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
+                          Filtrar por
+                        </p>
+                        <nav className="space-y-1" aria-label="Categorias">
+                          <button
+                            onClick={() => selectDept(null)}
+                            className={`${btnBase} ${!activeDept ? activeBtn : inactiveBtn}`}
+                          >
+                            <LayoutGrid className="h-4 w-4 opacity-70 shrink-0" />
+                            <span className="flex-1 text-left">Todos</span>
+                          </button>
+
+                          {departments.map((d) => {
+                            const hasSubs = categories.some((c) => c.parent_id === d.id);
+                            return (
+                              <button
+                                key={d.id}
+                                onClick={() => {
+                                  if (hasSubs) {
+                                    setDrawerDept(d);
+                                    setDrawerLevel("subcats");
+                                  } else {
+                                    selectDept(d.id);
+                                  }
+                                }}
+                                className={`${btnBase} ${activeDept === d.id ? activeBtn : inactiveBtn}`}
+                              >
+                                {getCategoryIcon(d.name)}
+                                <span className="flex-1 text-left">{d.name}</span>
+                                {hasSubs && (
+                                  <ChevronRight className="h-4 w-4 shrink-0 opacity-40" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </nav>
+                      </div>
+
+                      {/* ── Footer fixo: informações da loja ── */}
+                      <div className="shrink-0 border-t border-border px-4 pt-4 pb-4">
+                        <p className="px-2 mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
+                          Informações da loja
+                        </p>
+                        <div className="space-y-0.5">
+                          {store.description && (
+                            <div className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 cursor-default text-muted-foreground">
+                              <Info className="h-[18px] w-[18px] shrink-0 text-slate-400" />
+                              <span className="flex-1 text-left text-sm leading-snug">
+                                {store.description}
+                              </span>
+                            </div>
+                          )}
+                          {(store.address || store.city || store.state) && (
+                            <button
+                              onClick={() => {
+                                const q = [store.address, store.city, store.state, store.zip_code]
+                                  .filter(Boolean)
+                                  .join(", ");
+                                window.open(
+                                  `https://maps.google.com/?q=${encodeURIComponent(q)}`,
+                                  "_blank",
+                                );
+                              }}
+                              className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-all duration-200 hover:opacity-80"
+                            >
+                              <MapPin className="h-[18px] w-[18px] shrink-0 text-red-500" />
+                              <span className="flex-1 text-left">
+                                {[store.address, store.city, store.state]
+                                  .filter(Boolean)
+                                  .join(", ")}
+                              </span>
+                            </button>
+                          )}
+                          {store.whatsapp && (
+                            <button
+                              onClick={openWhatsApp}
+                              className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-all duration-200 hover:opacity-80"
+                            >
+                              <MessageCircle
+                                className="h-[18px] w-[18px] shrink-0"
+                                style={{ color: "#25D366" }}
+                              />
+                              <span className="flex-1 text-left">WhatsApp</span>
+                            </button>
+                          )}
+                          {store.instagram && (
+                            <button
+                              onClick={openInstagram}
+                              className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-all duration-200 hover:opacity-80"
+                            >
+                              <Instagram className="h-[18px] w-[18px] shrink-0 text-pink-500" />
+                              <span className="flex-1 text-left">Instagram</span>
+                            </button>
+                          )}
+                        </div>
+                        <div className="border-t border-border mt-3 pt-3 px-2 space-y-0.5">
+                          <p className="text-[10px] text-muted-foreground/40">
+                            Powered by Amanda Miranda
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Level 2: subcategories */}
+                    <div
+                      className={`absolute inset-0 overflow-y-auto px-4 py-6 transition-transform duration-300 ease-in-out ${
+                        drawerLevel === "subcats" ? "translate-x-0" : "translate-x-full"
+                      }`}
+                    >
+                      <p className="px-2 mb-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
+                        Subcategorias
+                      </p>
+                      <nav className="space-y-1" aria-label="Subcategorias">
+                        <button
+                          onClick={() => drawerDept && selectSubcat(drawerDept.id, null)}
+                          className={`${btnBase} ${
+                            activeDept === drawerDept?.id && !activeCat ? activeBtn : inactiveBtn
+                          }`}
+                        >
+                          <LayoutGrid className="h-4 w-4 opacity-70 shrink-0" />
+                          <span className="flex-1 text-left">Todas</span>
+                        </button>
+
+                        {drawerSubcats.map((c) => (
+                          <button
+                            key={c.id}
+                            onClick={() => drawerDept && selectSubcat(drawerDept.id, c.id)}
+                            className={`${btnBase} ${activeCat === c.id ? activeBtn : inactiveBtn}`}
+                          >
+                            {getCategoryIcon(c.name)}
+                            <span className="flex-1 text-left">{c.name}</span>
+                          </button>
+                        ))}
+                      </nav>
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
+              {/* Mobile only: search */}
               <Button
-                ref={hamburgerRef}
                 variant="ghost"
                 size="icon"
-                aria-expanded={isCategoryMenuOpen}
-                aria-haspopup="dialog"
-                className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 h-10 w-10"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => setCategoryMenuOpen((prev) => !prev)}
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onSearchButtonClick}
-                className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 h-10 w-10"
-                title="Buscar"
+                onClick={() => {
+                  // Search UI lives on the storefront page (it filters the product grid).
+                  // If we're somewhere else (cart, favorites, product), navigate there first.
+                  const storefrontPath = location.pathname.startsWith("/loja/")
+                    ? `/loja/${store.slug}`
+                    : "/";
+                  if (location.pathname !== storefrontPath) {
+                    navigate({ to: storefrontPath });
+                  }
+                  openSearchMenu(true);
+                }}
+                className="md:hidden rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-10 w-10 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
+                aria-label="Pesquisar produtos"
               >
                 <Search className="h-5 w-5" />
               </Button>
-            </div>
-
-            {/* Center: logo absolutely centered */}
-            <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none">
-              <Link to="/" className="flex items-center group pointer-events-auto">
+              {/* Desktop only: logo + store name */}
+              <Link to="/" className="hidden md:flex items-center gap-3 group min-w-0">
                 {store.logo_url ? (
                   <img
                     src={store.logo_url}
                     alt={store.name}
-                    className="h-10 w-10 rounded-full object-cover shadow-sm group-hover:scale-105 transition-transform"
+                    className="h-12 w-12 rounded-full object-cover shadow-sm group-hover:scale-105 transition-transform shrink-0"
                   />
                 ) : (
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-900 text-white font-black text-lg group-hover:scale-105 transition-transform">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-900 text-white font-black text-lg group-hover:scale-105 transition-transform">
                     {store.name.charAt(0).toUpperCase()}
                   </span>
                 )}
+                <h1 className="text-2xl font-black tracking-tighter text-slate-900 uppercase truncate">
+                  {store.name}
+                </h1>
               </Link>
             </div>
 
-            {/* Right: favorites + cart */}
-            <div className="flex items-center gap-1 shrink-0 ml-auto">
-              <Link to="/favoritos" className="relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 h-10 w-10 relative cursor-pointer"
-                  title="Favoritos"
-                  asChild
-                >
-                  <div>
-                    <Heart className="h-5 w-5" />
-                    {favCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-rose-500 text-[10px] font-bold text-white ring-2 ring-white px-1 animate-in zoom-in-75">
-                        {favCount}
-                      </span>
-                    )}
-                  </div>
-                </Button>
-              </Link>
-              <Link to="/carrinho" className="relative">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 h-10 w-10 cursor-pointer"
-                  title="Carrinho"
-                  asChild
-                >
-                  <div>
-                    <ShoppingBag className="h-5 w-5" />
-                    {cartCount > 0 && (
-                      <span className="absolute -top-1 -right-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-white ring-2 ring-white px-1 animate-in zoom-in-75">
-                        {cartCount}
-                      </span>
-                    )}
-                  </div>
-                </Button>
-              </Link>
-            </div>
-          </div>
-
-          {/* ── Desktop layout (≥ lg): logo left | icons right ── */}
-          <div className="hidden lg:flex h-20 items-center justify-between gap-2 w-full">
-            {/* Left: Logo */}
-            <Link to="/" className="flex items-center group min-w-0">
+            {/* ── Center: logo avatar (mobile only, truly centered via absolute) ── */}
+            <Link
+              to="/"
+              className="md:hidden absolute left-1/2 -translate-x-1/2 flex items-center group"
+              aria-label={store.name}
+            >
               {store.logo_url ? (
                 <img
                   src={store.logo_url}
                   alt={store.name}
-                  className="h-12 w-12 rounded-full object-cover shadow-sm group-hover:scale-105 transition-transform shrink-0"
+                  className="h-9 w-9 rounded-full object-cover shadow-sm group-hover:scale-105 transition-transform shrink-0"
                 />
               ) : (
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-slate-900 text-white font-black text-lg group-hover:scale-105 transition-transform">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-900 text-white font-black text-lg group-hover:scale-105 transition-transform">
                   {store.name.charAt(0).toUpperCase()}
                 </span>
               )}
             </Link>
 
-            {/* Right: Instagram + Info + Favorites + Cart */}
-            <div className="flex items-center gap-2 shrink-0">
+            {/* ── Right: action icons (mobile and desktop) ── */}
+            <div className="flex items-center gap-0.5 sm:gap-2 ml-auto shrink-0 z-10">
+              {/* Desktop only: Instagram */}
               {store.instagram && (
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={openInstagram}
-                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-11 w-11 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
+                  className="hidden md:inline-flex rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-10 w-10 sm:h-11 sm:w-11 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
                   title="Instagram"
                 >
                   <Instagram className="h-5 w-5" />
                 </Button>
               )}
 
+              {/* Desktop only: store info dialog */}
               <Dialog>
                 <DialogTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-11 w-11 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
+                    className="hidden md:inline-flex rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-10 w-10 sm:h-11 sm:w-11 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
                     title="Informações"
                   >
                     <Info className="h-5 w-5" />
@@ -417,7 +530,7 @@ export function StoreHeader({ store }: { store: any }) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-11 w-11 relative cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
+                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-10 w-10 sm:h-11 sm:w-11 relative cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
                   title="Favoritos"
                   asChild
                 >
@@ -436,7 +549,7 @@ export function StoreHeader({ store }: { store: any }) {
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-11 w-11 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
+                  className="rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all duration-300 active:scale-90 hover:scale-110 h-10 w-10 sm:h-11 sm:w-11 cursor-pointer active:bg-slate-200/80 hover:shadow-sm"
                   title="Carrinho"
                   asChild
                 >
@@ -456,280 +569,7 @@ export function StoreHeader({ store }: { store: any }) {
       </header>
 
       {/* Spacer keeps content from being hidden behind the fixed header */}
-      <div className="h-16 lg:h-20" aria-hidden="true" />
-
-      {/* ─── Category Drawer ─────────────────────────────────────────── */}
-      <Sheet open={isCategoryMenuOpen} onOpenChange={setCategoryMenuOpen}>
-        <SheetContent
-          side="left"
-          className="w-[85vw] max-w-[320px] p-0 gap-0 border-r shadow-2xl z-[999] flex flex-col [&>button]:hidden"
-        >
-          {/* Sticky header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between h-16 px-4 border-b bg-background shrink-0">
-            {drawerLevel === "departments" ? (
-              <SheetTitle className="text-base font-black uppercase tracking-tight">
-                Categorias
-              </SheetTitle>
-            ) : (
-              <button
-                onClick={() => setDrawerLevel("departments")}
-                className="flex items-center gap-2 text-slate-800"
-              >
-                <ArrowLeft className="h-5 w-5" />
-                <SheetTitle className="text-base font-black uppercase tracking-tight">
-                  {drawerDept?.name}
-                </SheetTitle>
-              </button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setCategoryMenuOpen(false)}
-              className="h-9 w-9 rounded-full"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
-
-          {/* Sliding panels */}
-          <div className="relative flex-1 overflow-hidden">
-            {/* Level 1 – departments */}
-            <div
-              className={cn(
-                "absolute inset-0 transition-transform duration-300 overflow-y-auto",
-                drawerLevel === "departments" ? "translate-x-0" : "-translate-x-full",
-              )}
-            >
-              {/* FILTRAR POR */}
-              <div className="px-4 pt-5 pb-4">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                  Filtrar por
-                </p>
-
-                {/* Todos */}
-                <button
-                  onClick={selectAll}
-                  className={cn(
-                    "flex items-center gap-3 w-full px-4 py-3 rounded-full text-sm font-semibold transition-colors",
-                    !activeDept && !activeCat
-                      ? "bg-slate-900 text-white"
-                      : "text-slate-800 hover:bg-slate-100",
-                  )}
-                >
-                  <LayoutGrid className="h-4 w-4 shrink-0" />
-                  Todos
-                </button>
-
-                {/* Departments */}
-                {departments.map((dept: any) => (
-                  <button
-                    key={dept.id}
-                    onClick={() => {
-                      setDrawerDept(dept);
-                      setDrawerLevel("subcategories");
-                    }}
-                    className={cn(
-                      "flex items-center gap-3 w-full px-4 py-3 rounded-full text-sm font-semibold transition-colors mt-1",
-                      activeDept === dept.id
-                        ? "bg-slate-900 text-white"
-                        : "text-slate-800 hover:bg-slate-100",
-                    )}
-                  >
-                    <LayoutGrid className="h-4 w-4 shrink-0" />
-                    {dept.name}
-                    <ChevronRight className="h-4 w-4 ml-auto shrink-0 opacity-50" />
-                  </button>
-                ))}
-              </div>
-
-              {/* INFORMAÇÕES DA LOJA */}
-              <div className="border-t border-slate-100 px-4 pt-5 pb-2">
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">
-                  Informações da Loja
-                </p>
-
-                {/* Location card */}
-                {(store.address || store.city || store.state) && (
-                  <button
-                    onClick={openMaps}
-                    className="flex items-start gap-3 w-full bg-slate-100 hover:bg-slate-200 transition-colors rounded-xl px-4 py-3 mb-1 text-left"
-                  >
-                    <MapPin className="h-4 w-4 text-rose-500 shrink-0 mt-0.5" />
-                    <p className="text-xs text-slate-700 font-medium leading-relaxed">
-                      {[store.address, store.city, store.state].filter(Boolean).join(", ")}
-                      {store.zip_code && `, ${store.zip_code}`}
-                    </p>
-                  </button>
-                )}
-
-                {/* WhatsApp */}
-                {store.whatsapp && (
-                  <button
-                    onClick={() => {
-                      setCategoryMenuOpen(false);
-                      openWhatsApp();
-                    }}
-                    className="flex items-center gap-3 w-full px-2 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 rounded-xl transition-colors"
-                  >
-                    <MessageCircle className="h-5 w-5 text-emerald-500 shrink-0" />
-                    WhatsApp
-                  </button>
-                )}
-
-                {/* Instagram */}
-                {store.instagram && (
-                  <button
-                    onClick={() => {
-                      setCategoryMenuOpen(false);
-                      openInstagram();
-                    }}
-                    className="flex items-center gap-3 w-full px-2 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 rounded-xl transition-colors"
-                  >
-                    <Instagram className="h-5 w-5 text-pink-500 shrink-0" />
-                    Instagram
-                  </button>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className="px-4 py-6 text-center">
-                <p className="text-[10px] text-slate-400">Powered by Amanda Miranda</p>
-              </div>
-            </div>
-
-            {/* Level 2 – subcategories */}
-            <div
-              className={cn(
-                "absolute inset-0 transition-transform duration-300 overflow-y-auto",
-                drawerLevel === "subcategories" ? "translate-x-0" : "translate-x-full",
-              )}
-            >
-              {/* "Ver todos" of parent dept */}
-              {drawerDept && (
-                <button
-                  onClick={() => selectDept(drawerDept.id)}
-                  className="flex items-center w-full px-5 py-4 text-sm font-bold text-slate-900 border-b hover:bg-slate-50 transition-colors bg-slate-50/60"
-                >
-                  Ver todos em {drawerDept.name}
-                </button>
-              )}
-              {drawerSubcats.map((cat: any) => (
-                <button
-                  key={cat.id}
-                  onClick={() => selectSubcat(drawerDept!.id, cat.id)}
-                  className="flex items-center w-full px-5 py-4 text-sm font-medium text-slate-700 border-b hover:bg-slate-50 transition-colors"
-                >
-                  {cat.name}
-                </button>
-              ))}
-              {drawerSubcats.length === 0 && drawerDept && (
-                <p className="px-5 py-8 text-sm text-slate-400 text-center">Nenhuma subcategoria</p>
-              )}
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* ─── Search Overlay ──────────────────────────────────────────── */}
-      {isSearchOpen && (
-        <div
-          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm"
-          onClick={() => setSearchOpen(false)}
-        >
-          {/* Panel — click inside doesn't close */}
-          <div
-            className="bg-white w-full max-w-2xl mx-auto shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Input row */}
-            <div className="px-4 pt-4 pb-2">
-              <div className="flex items-center gap-2 bg-slate-100 rounded-full px-4 h-11">
-                <Search className="h-4 w-4 text-slate-400 shrink-0" />
-                <input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar produtos..."
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  className="flex-1 bg-transparent outline-none text-sm text-slate-900 placeholder:text-slate-400"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="p-0.5 text-slate-400 hover:text-slate-700 transition-colors"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              <div className="text-center mt-2 pb-1">
-                <button
-                  onClick={() => setSearchOpen(false)}
-                  className="text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors py-1 px-4"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-
-            {/* Results */}
-            {debouncedQuery.trim() && (
-              <div className="border-t max-h-[65vh] overflow-y-auto">
-                <p className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                  {isSearching
-                    ? "Pesquisando..."
-                    : searchResults.length === 0
-                      ? "Nenhum resultado encontrado"
-                      : "Resultados"}
-                </p>
-                {!isSearching && searchResults.length > 0 && (
-                  <ul>
-                    {searchResults.map((p: any) => {
-                      const img = (p.product_images as any[])?.sort(
-                        (a, b) => (a.position ?? 0) - (b.position ?? 0),
-                      )[0]?.url;
-                      return (
-                        <li key={p.id}>
-                          <button
-                            onClick={() => onResultClick(p.id)}
-                            className="flex items-center gap-3 w-full px-4 py-3 border-b border-slate-100 hover:bg-slate-50 transition-colors text-left"
-                          >
-                            {img ? (
-                              <img
-                                src={img}
-                                alt={p.name}
-                                className="h-12 w-12 rounded-lg object-cover shrink-0 bg-slate-100"
-                              />
-                            ) : (
-                              <div className="h-12 w-12 rounded-lg bg-slate-100 shrink-0 flex items-center justify-center">
-                                <ShoppingBag className="h-5 w-5 text-slate-300" />
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-semibold text-slate-900 truncate">
-                                {p.name}
-                              </p>
-                              <p className="text-xs text-slate-500 mt-0.5">
-                                {(p.price as number).toLocaleString("pt-BR", {
-                                  style: "currency",
-                                  currency: "BRL",
-                                })}
-                              </p>
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <div className="h-16 sm:h-20" aria-hidden="true" />
     </>
   );
 }
