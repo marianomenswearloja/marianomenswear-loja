@@ -181,16 +181,27 @@ function ProductsList() {
   }
 
   async function duplicateProduct(product: any) {
+    // Fetch full product data (variants + color images)
+    const { data: full, error: fetchError } = await supabase
+      .from("products")
+      .select("*, product_images(*), product_variants(*), product_color_images(*)")
+      .eq("id", product.id)
+      .single();
+
+    if (fetchError || !full) return toast.error("Erro ao buscar dados do produto");
+
     const { data: newProduct, error } = await supabase
       .from("products")
       .insert({
         store_id: store!.id,
-        name: `${product.name} (Cópia)`,
-        description: product.description,
-        price: product.price,
-        compare_at_price: product.compare_at_price,
-        category_id: product.category_id,
+        name: `${full.name} (Cópia)`,
+        description: full.description,
+        price: full.price,
+        compare_at_price: full.compare_at_price,
+        category_id: full.category_id,
+        featured: false,
         active: false,
+        has_variations: full.has_variations,
       })
       .select()
       .single();
@@ -198,9 +209,12 @@ function ProductsList() {
     if (error) return toast.error(error.message);
 
     // Copiar imagens
-    if (product.product_images?.length) {
+    const sortedImages = [...(full.product_images ?? [])].sort(
+      (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0),
+    );
+    if (sortedImages.length) {
       await supabase.from("product_images").insert(
-        product.product_images.map((img: any) => ({
+        sortedImages.map((img: any) => ({
           product_id: newProduct.id,
           url: img.url,
           position: img.position,
@@ -208,8 +222,38 @@ function ProductsList() {
       );
     }
 
+    // Copiar variantes
+    const validVariants = (full.product_variants ?? []).filter(
+      (v: any) => v.size || v.color || v.numbering,
+    );
+    if (validVariants.length) {
+      await supabase.from("product_variants").insert(
+        validVariants.map((v: any) => ({
+          product_id: newProduct.id,
+          size: v.size || null,
+          color: v.color || null,
+          numbering: v.numbering || null,
+          is_active: v.is_active ?? true,
+        })),
+      );
+    }
+
+    // Copiar imagens de cores
+    const sortedColorImages = [...(full.product_color_images ?? [])].sort(
+      (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0),
+    );
+    if (sortedColorImages.length) {
+      await supabase.from("product_color_images").insert(
+        sortedColorImages.map((c: any) => ({
+          product_id: newProduct.id,
+          color: c.color,
+          image_url: c.image_url,
+          position: c.position,
+        })),
+      );
+    }
+
     toast.success("Produto duplicado");
-    refetch();
     navigate({ to: "/admin/produtos/$id", params: { id: newProduct.id } });
   }
 

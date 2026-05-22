@@ -21,6 +21,7 @@ import {
   Plus,
   Trash2,
   Check,
+  CopyPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { SmartSizeGrid } from "@/components/admin/SmartSizeGrid";
 
 export const Route = createFileRoute("/admin/produtos/novo")({
   component: NewProduct,
@@ -54,7 +56,7 @@ function NewProduct() {
   const [variants, setVariants] = useState<Variant[]>([]);
   const [colorImages, setColorImages] = useState<Record<string, string[]>>({});
   const [colorActive, setColorActive] = useState<Record<string, boolean>>({});
-  const [varTypes, setVarTypes] = useState({ cores: true, tamanhos: true });
+  const [varTypes, setVarTypes] = useState({ cores: true, tamanhos: true, numeracao: true });
   const [form, setForm] = useState({
     name: "",
     description: "",
@@ -287,15 +289,17 @@ function NewProduct() {
                       </label>
                       <label className="flex items-center gap-2 cursor-pointer select-none">
                         <Checkbox
-                          checked={varTypes.tamanhos}
-                          onCheckedChange={(c) => setVarTypes({ ...varTypes, tamanhos: !!c })}
+                          checked={varTypes.tamanhos || varTypes.numeracao}
+                          onCheckedChange={(c) =>
+                            setVarTypes({ ...varTypes, tamanhos: !!c, numeracao: !!c })
+                          }
                         />
-                        <span className="text-sm">Possui tamanhos/numerações diferentes</span>
+                        <span className="text-sm">Tamanhos / Numeração</span>
                       </label>
                     </div>
                   </div>
 
-                  {(varTypes.cores || varTypes.tamanhos) && (
+                  {(varTypes.cores || varTypes.tamanhos || varTypes.numeracao) && (
                     <VariantsEditor
                       variants={variants}
                       setVariants={setVariants}
@@ -455,8 +459,6 @@ function NewProduct() {
   );
 }
 
-const COMMON_SIZES = ["PP", "P", "M", "G", "GG", "XG", "Único"];
-
 function VariantsEditor({
   variants,
   setVariants,
@@ -472,7 +474,7 @@ function VariantsEditor({
   setColorImages: (v: Record<string, string[]>) => void;
   colorActive: Record<string, boolean>;
   setColorActive: (v: Record<string, boolean>) => void;
-  varTypes: { cores: boolean; tamanhos: boolean };
+  varTypes: { cores: boolean; tamanhos: boolean; numeracao: boolean };
 }) {
   const [newColorAdded, setNewColorAdded] = useState<string | null>(null);
   const colorRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -506,6 +508,22 @@ function VariantsEditor({
     setColorActive(nextActive);
   }
 
+  function duplicateColor(color: string) {
+    let newName = `${color} (Cópia)`;
+    let counter = 2;
+    while (colors.includes(newName)) {
+      newName = `${color} (Cópia ${counter++})`;
+    }
+    const rows = variants.filter((v) => v.color === color);
+    const duplicatedRows = rows.map((v) => ({ ...v, id: undefined, color: newName }));
+    setVariants([...variants, ...duplicatedRows]);
+    setColorActive({ ...colorActive, [newName]: colorActive[color] ?? true });
+    if (colorImages[color]) {
+      setColorImages({ ...colorImages, [newName]: [...colorImages[color]] });
+    }
+    setNewColorAdded(newName);
+  }
+
   function renameColor(oldName: string, newName: string) {
     const next = newName.trim();
     if (!next || next === oldName) return;
@@ -528,14 +546,6 @@ function VariantsEditor({
     setColorActive({ ...colorActive, [color]: active });
   }
 
-  function updateRow(target: Variant, patch: Partial<Variant>) {
-    setVariants(variants.map((v) => (v === target ? { ...v, ...patch } : v)));
-  }
-
-  function removeRow(target: Variant) {
-    setVariants(variants.filter((v) => v !== target));
-  }
-
   function toggleSize(color: string, size: string) {
     const existing = variants.find((v) => v.color === color && v.size === size);
     if (existing) {
@@ -545,112 +555,13 @@ function VariantsEditor({
     }
   }
 
-  function addNumberingRow(color: string) {
-    setVariants([...variants, { color, size: "", numbering: "" }]);
-  }
-
-  // Caso: somente tamanhos (sem cores) — editor plano sem agrupamento por cor
-  if (!varTypes.cores && varTypes.tamanhos) {
+  // Caso: somente tamanhos (sem cores)
+  if (!varTypes.cores && (varTypes.tamanhos || varTypes.numeracao)) {
     const sizeRows = variants.filter((v) => v.size);
-    const numberingRows = variants.filter((v) => !v.size);
-    const toggleFlatSize = (size: string) => {
-      const existing = variants.find((v) => v.size === size);
-      if (existing) setVariants(variants.filter((v) => v !== existing));
-      else setVariants([...variants, { color: "", size, numbering: "" }]);
-    };
     return (
       <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="p-4 space-y-6">
-          <div className="space-y-4">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground font-bold">
-              Grade de Tamanhos
-            </Label>
-            <div className="flex flex-wrap gap-2">
-              {COMMON_SIZES.map((s) => {
-                const active = sizeRows.some((r) => r.size === s);
-                return (
-                  <Button
-                    key={s}
-                    type="button"
-                    variant={active ? "default" : "outline"}
-                    size="sm"
-                    className="min-w-[40px]"
-                    onClick={() => toggleFlatSize(s)}
-                  >
-                    {s}
-                  </Button>
-                );
-              })}
-            </div>
-            {sizeRows.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {sizeRows.map((v, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/10"
-                  >
-                    <span className="w-8 h-8 flex items-center justify-center rounded bg-muted text-xs font-bold">
-                      {v.size}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground"
-                      onClick={() => removeRow(v)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <Separator />
-
-          <div className="space-y-4">
-            {numberingRows.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">
-                  Numeração Personalizada
-                </p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {numberingRows.map((v, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/10"
-                    >
-                      <Input
-                        placeholder="Nº"
-                        value={v.numbering}
-                        className="h-8"
-                        onChange={(e) => updateRow(v, { numbering: e.target.value })}
-                      />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground"
-                        onClick={() => removeRow(v)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full border-dashed border-2 hover:border-solid"
-              onClick={() => setVariants([...variants, { color: "", size: "", numbering: "" }])}
-            >
-              <Plus className="mr-1 h-4 w-4" /> Adicionar numeração personalizada
-            </Button>
-          </div>
+        <div className="p-4">
+          <SmartSizeGrid color="" sizeRows={sizeRows} toggleSize={toggleSize} />
         </div>
       </div>
     );
@@ -663,7 +574,7 @@ function VariantsEditor({
 
       {colors.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          {varTypes.tamanhos
+          {varTypes.tamanhos || varTypes.numeracao
             ? "Cadastre as cores disponíveis. Para cada cor, escolha os tamanhos da grade."
             : "Cadastre as cores disponíveis. Para cada cor, adicione as fotos correspondentes."}
         </p>
@@ -673,7 +584,6 @@ function VariantsEditor({
         {colors.map((color) => {
           const rows = variants.filter((v) => v.color === color);
           const sizeRows = rows.filter((r) => r.size);
-          const numberingRows = rows.filter((r) => !r.size);
           return (
             <div
               key={color}
@@ -712,6 +622,15 @@ function VariantsEditor({
                       type="button"
                       variant="ghost"
                       size="sm"
+                      onClick={() => duplicateColor(color)}
+                      title="Duplicar cor"
+                    >
+                      <CopyPlus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
                       onClick={() => removeColor(color)}
                       className="text-destructive hover:text-destructive hover:bg-destructive/10"
                     >
@@ -738,95 +657,11 @@ function VariantsEditor({
                   />
                 </div>
 
-                {/* Tamanhos e numeração — somente se tamanhos habilitado */}
-                {varTypes.tamanhos && (
+                {/* Tamanhos / Numeração — grade inteligente */}
+                {(varTypes.tamanhos || varTypes.numeracao) && (
                   <>
                     <Separator />
-                    <div className="space-y-4">
-                      <Label className="text-xs uppercase tracking-wider text-muted-foreground font-bold">
-                        Grade de Tamanhos
-                      </Label>
-                      <div className="flex flex-wrap gap-2">
-                        {COMMON_SIZES.map((s) => {
-                          const active = sizeRows.some((r) => r.size === s);
-                          return (
-                            <Button
-                              key={s}
-                              type="button"
-                              variant={active ? "default" : "outline"}
-                              size="sm"
-                              className="min-w-[40px]"
-                              onClick={() => toggleSize(color, s)}
-                            >
-                              {s}
-                            </Button>
-                          );
-                        })}
-                      </div>
-                      {sizeRows.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {sizeRows.map((v, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/10"
-                            >
-                              <span className="w-8 h-8 flex items-center justify-center rounded bg-muted text-xs font-bold">
-                                {v.size}
-                              </span>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground"
-                                onClick={() => removeRow(v)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {numberingRows.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs text-muted-foreground font-bold uppercase tracking-wider">
-                            Numeração Personalizada
-                          </p>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            {numberingRows.map((v, i) => (
-                              <div
-                                key={i}
-                                className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/10"
-                              >
-                                <Input
-                                  placeholder="Nº"
-                                  value={v.numbering}
-                                  className="h-8"
-                                  onChange={(e) => updateRow(v, { numbering: e.target.value })}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-8 w-8 text-muted-foreground"
-                                  onClick={() => removeRow(v)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="w-full border-dashed border-2 hover:border-solid"
-                        onClick={() => addNumberingRow(color)}
-                      >
-                        <Plus className="mr-1 h-4 w-4" /> Adicionar numeração personalizada
-                      </Button>
-                    </div>
+                    <SmartSizeGrid color={color} sizeRows={sizeRows} toggleSize={toggleSize} />
                   </>
                 )}
               </div>
