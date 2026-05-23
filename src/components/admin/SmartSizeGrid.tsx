@@ -67,10 +67,12 @@ export function SmartSizeGrid({
   color,
   sizeRows,
   toggleSize,
+  addSizes,
 }: {
   color: string;
   sizeRows: Variant[];
   toggleSize: (color: string, size: string) => void;
+  addSizes: (color: string, sizes: string[]) => void;
 }) {
   const [sizeType, setSizeType] = useState<SizeType>("calcados");
   const [manualInput, setManualInput] = useState("");
@@ -78,20 +80,14 @@ export function SmartSizeGrid({
   const selectedSizes = sizeRows.map((r) => r.size).filter(Boolean);
 
   function applyPreset(sizes: string[]) {
-    sizes.forEach((s) => {
-      if (!selectedSizes.includes(s)) {
-        toggleSize(color, s);
-      }
-    });
+    const toAdd = sizes.filter((s) => !selectedSizes.includes(s));
+    if (toAdd.length) addSizes(color, toAdd);
   }
 
   function applyManual() {
     const parsed = parseSizeInput(manualInput);
-    parsed.forEach((s) => {
-      if (s && !selectedSizes.includes(s)) {
-        toggleSize(color, s);
-      }
-    });
+    const toAdd = parsed.filter((s) => s && !selectedSizes.includes(s));
+    if (toAdd.length) addSizes(color, toAdd);
     setManualInput("");
   }
 
